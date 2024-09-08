@@ -1,0 +1,5 @@
+Flask==3.0.3
+Flask-SocketIO==5.3.7
+yfinance==0.2.43
+pandas==2.2.2
+mysql-connector-python==9.0.0
