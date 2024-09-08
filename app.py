@@ -17,7 +17,7 @@ DB_CONFIG = {
     "port": 26155,
     "database": "defaultdb",
     "user": "avnadmin",
-    "password": ""
+    "password": "AVNS_3zZzVHpIlHRhPOCoxIY"
 }
 
 # Global lock for database operations
