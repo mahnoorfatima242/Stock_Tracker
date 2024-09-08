@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Stock Price Tracker</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #13151a;
+            color: #ffffff;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        h2 {
+            font-size: 18px;
+            margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        .upload-area {
+            border: 2px dashed #2c2f36;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #1c1f26;
+            position: relative;
+            cursor: pointer;
+        }
+        .upload-icon {
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        .file-info {
+            background-color: #1c1f26;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            margin-bottom: 20px;
+            background-color: #1c1f26;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #2c2f36;
+        }
+        th {
+            background-color: #1c1f26;
+            font-weight: normal;
+            color: #8b8d91;
+        }
+        tr:last-child td {
+            border-bottom: none;
+        }
+        .stock-container {
+            background-color: #1c1f26;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #2c2f36;
+            border: none;
+            border-radius: 4px;
+            color: #ffffff;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #3a3d46;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #ff0000;
+        }
+        .browse-files {
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: #2c2f36;
+            padding: 8px 15px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .input-group {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .input-container {
+            width: 48%;
+        }
+        .input-label {
+            margin-bottom: 5px;
+            color: #8b8d91;
+            font-size: 14px;
+        }
+        .progress-bar {
+            width: 100%;
+            background-color: #2c2f36;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 10px;
+            height: 8px;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 0.5s ease-in-out;
+        }
+        #status {
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .close-btn {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Multi-Stock Price Tracker</h1>
+        <p>Upload CSV file</p>
+        <div class="upload-area" id="drop-area">
+            <div class="upload-icon">☁️</div>
+            <p>Drag and drop file here</p>
+            <p style="color: #8b8d91;">Limit 200MB per file • CSV</p>
+            <div class="browse-files">Browse files</div>
+            <input type="file" id="csvFile" accept=".csv" style="display: none;">
+        </div>
+        <div id="fileInfo" style="display: none;" class="file-info">
+            <span id="fileName"></span>
+            <span id="fileSize"></span>
+            <span class="close-btn" onclick="removeFile()">✕</span>
+        </div>
+        <div id="csvContent"></div>
+        <div id="stockList"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        
+        // File drag and drop functionality
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('csvFile');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropArea.classList.add('highlight');
+        }
+
+        function unhighlight(e) {
+            dropArea.classList.remove('highlight');
+        }
+
+        dropArea.addEventListener('drop', handleDrop, false);
+
+        dropArea.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', function() {
+            handleFiles(this.files);
+        });
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles(files);
+        }
+
+        function handleFiles(files) {
+            if (files.length > 0) {
+                const file = files[0];
+                document.getElementById('fileName').textContent = file.name;
+                document.getElementById('fileSize').textContent = (file.size / 1024).toFixed(2) + ' KB';
+                document.getElementById('fileInfo').style.display = 'flex';
+                fileInput.files = files;
+                loadCSV(file);
+            }
+        }
+
+        function removeFile() {
+            document.getElementById('fileInfo').style.display = 'none';
+            document.getElementById('csvContent').innerHTML = '';
+            document.getElementById('stockList').innerHTML = '';
+            fileInput.value = '';
+        }
+
+        function loadCSV(file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const csv = event.target.result;
+                const rows = csv.split('\n');
+                const headers = rows[0].split(',');
+                let tableHtml = '<table><tr>';
+                headers.forEach(header => {
+                    tableHtml += `<th>${header}</th>`;
+                });
+                tableHtml += '</tr>';
+                
+                for (let i = 1; i < rows.length; i++) {
+                    const columns = rows[i].split(',');
+                    if (columns.length === headers.length) {
+                        tableHtml += '<tr>';
+                        columns.forEach(column => {
+                            tableHtml += `<td>${column}</td>`;
+                        });
+                        tableHtml += '</tr>';
+                    }
+                }
+                tableHtml += '</table>';
+                document.getElementById('csvContent').innerHTML = tableHtml;
+                
+                const stockList = document.getElementById('stockList');
+                stockList.innerHTML = '';
+                
+                for (let i = 1; i < rows.length; i++) {
+                    const columns = rows[i].split(',');
+                    if (columns.length === headers.length) {
+                        const ticker = columns[0].trim();
+                        const timeframe = columns[1].trim();
+                        const confidence = columns[2].trim();
+                        const price = parseFloat(columns[4].trim());
+                        
+                        const stockDiv = document.createElement('div');
+                        stockDiv.className = 'stock-container';
+                        stockDiv.innerHTML = `
+                            <h2>Tracker for ${ticker}</h2>
+                            <div class="input-group">
+                                <div class="input-container">
+                                    <div class="input-label">Enter timeframe for ${ticker} (1d, 1m, or seconds):</div>
+                                    <input type="text" id="tracking_time_${ticker}" value="${timeframe}">
+                                </div>
+                                <div class="input-container">
+                                    <div class="input-label">Enter tracking interval for ${ticker} (seconds):</div>
+                                    <input type="text" id="interval_${ticker}" value="30">
+                                </div>
+                            </div>
+                            <button onclick="startTracking('${ticker}', ${price}, '${confidence}')">Track ${ticker}</button>
+                            <div id="status_${ticker}"></div>
+                            <div class="progress-bar"><div id="progress_${ticker}" class="progress-bar-fill"></div></div>
+                        `;
+                        stockList.appendChild(stockDiv);
+                    }
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function startTracking(ticker, initial_price, confidence) {
+            const tracking_time = document.getElementById(`tracking_time_${ticker}`).value;
+            const interval = document.getElementById(`interval_${ticker}`).value;
+            console.log('Sending start_tracking event:', {
+                ticker: ticker,
+                initial_price: initial_price,
+                confidence: confidence,
+                tracking_time: tracking_time,
+                interval: interval
+            });
+            socket.emit('start_tracking', {
+                ticker: ticker,
+                initial_price: initial_price,
+                confidence: confidence,
+                tracking_time: tracking_time,
+                interval: interval
+            });
+            document.getElementById(`status_${ticker}`).innerHTML = 'Tracking...';
+        }
+
+        socket.on('update', function(data) {
+            console.log('Received update:', data);
+            const statusDiv = document.getElementById(`status_${data.ticker}`);
+            const progressBar = document.getElementById(`progress_${data.ticker}`);
+            if (statusDiv && progressBar) {
+                if (data.price) {
+                    statusDiv.innerHTML = `Current Price: ${data.price}`;
+                }
+                if (data.progress !== undefined) {
+                    progressBar.style.width = `${Math.min(data.progress * 100, 100)}%`;
+                }
+                if (data.message) {
+                    statusDiv.innerHTML += `<br>${data.message}`;
+                }
+                if (data.update_count) {
+                    statusDiv.innerHTML += `<br>Update count: ${data.update_count}`;
+                }
+            }
+        });
+
+        socket.on('tracking_status', function(data) {
+            const statusDiv = document.getElementById(`status_${data.ticker}`);
+            if (statusDiv) {
+                if (data.status === 'tracking') {
+                    statusDiv.innerHTML = 'Tracking...';
+                } else if (data.status === 'countdown') {
+                    const hours = Math.floor(data.interval / 3600);
+                    const minutes = Math.floor((data.interval % 3600) / 60);
+                    const seconds = Math.floor(data.interval % 60);
+                    statusDiv.innerHTML = `Time remaining: ${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                }
+            }
+        });
+
+        socket.on('timer_update', function(data) {
+            const statusDiv = document.getElementById(`status_${data.ticker}`);
+            if (statusDiv) {
+                statusDiv.innerHTML = data.timer;
+            }
+        });
+
+        socket.on('error', function(data) {
+            console.log('Received error:', data);
+            const statusDiv = document.getElementById(`status_${data.ticker}`);
+            if (statusDiv) {
+                statusDiv.innerHTML = `Error: ${data.message}`;
+            }
+        });
+
+        socket.on('complete', function(data) {
+            console.log('Received complete:', data);
+            const statusDiv = document.getElementById(`status_${data.ticker}`);
+            if (statusDiv) {
+                statusDiv.innerHTML = data.message;
+            }
+        });
+
+        socket.on('connect', function() {
+            console.log('Connected to server');
+        });
+
+        socket.on('disconnect', function() {
+            console.log('Disconnected from server');
+        });
+    </script>
+</body>
+</html>
